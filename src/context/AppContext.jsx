@@ -36,6 +36,7 @@ const seed = {
     { id: 'r1', name: 'UI Kit.fig', type: 'design', size: '4.2 MB', uploaded: '1h ago' },
     { id: 'r2', name: 'Brand Guidelines.pdf', type: 'doc', size: '1.8 MB', uploaded: '1d ago' }
   ],
+  memories: [],
   graph: {
     nodes: [
       { id: 'core', position: { x: 0, y: 0 }, data: { label: 'Synapse' }, type: 'core' },
@@ -145,6 +146,7 @@ export function AppProvider({ children }) {
     const n = { id: 'n' + Date.now(), created: Date.now(), tag: 'Note', ...note }
     setState(s => ({ ...s, notes: [n, ...s.notes] }))
     logActivity(`You created a new note "${n.title}"`, 'note')
+    return n
   }, [logActivity])
 
   const deleteNote = useCallback((id) => {
@@ -160,6 +162,7 @@ export function AppProvider({ children }) {
     if (t.done && t.status === 'todo') t.status = 'done'
     setState(s => ({ ...s, tasks: [...s.tasks, t] }))
     logActivity(`New task added: "${t.title}"`, 'task')
+    return t
   }, [logActivity])
 
   const toggleTask = useCallback((id) => {
@@ -219,6 +222,7 @@ export function AppProvider({ children }) {
     const p = { id: 'p' + Date.now(), progress: 0, updated: 'just now', color: '#D9722E', autoTrack: false, ...project }
     setState(s => ({ ...s, projects: [p, ...s.projects] }))
     logActivity(`Project "${p.name}" created`, 'project')
+    return p
   }, [logActivity])
 
   const updateProject = useCallback((id, patch) => {
@@ -233,7 +237,12 @@ export function AppProvider({ children }) {
     const e = { id: 'e' + Date.now(), ...event }
     setState(s => ({ ...s, events: [...s.events, e] }))
     logActivity(`Event scheduled: "${e.title}"`, 'note')
+    return e
   }, [logActivity])
+
+  const updateEvent = useCallback((id, patch) => {
+    setState(s => ({ ...s, events: s.events.map(e => e.id === id ? { ...e, ...patch } : e) }))
+  }, [])
 
   const deleteEvent = useCallback((id) => {
     setState(s => ({ ...s, events: s.events.filter(e => e.id !== id) }))
@@ -247,6 +256,20 @@ export function AppProvider({ children }) {
 
   const deleteResource = useCallback((id) => {
     setState(s => ({ ...s, resources: s.resources.filter(r => r.id !== id) }))
+  }, [])
+
+  // AI Memory — durable facts the assistant is asked to remember (e.g. "my
+  // interview is July 20"), separate from the scrollback chat history so
+  // they can be recalled in future conversations without re-reading the
+  // whole transcript.
+  const addMemory = useCallback((fact) => {
+    const m = { id: 'mem' + Date.now(), fact, created: Date.now() }
+    setState(s => ({ ...s, memories: [m, ...(s.memories || [])].slice(0, 200) }))
+    return m
+  }, [])
+
+  const deleteMemory = useCallback((id) => {
+    setState(s => ({ ...s, memories: (s.memories || []).filter(m => m.id !== id) }))
   }, [])
 
   const setScene = useCallback((scene) => {
@@ -312,8 +335,9 @@ export function AppProvider({ children }) {
     addTask, toggleTask, deleteTask, setTaskStatus, updateTask,
     addSubtask, toggleSubtask, deleteSubtask,
     addProject, updateProject, deleteProject,
-    addEvent, deleteEvent,
+    addEvent, updateEvent, deleteEvent,
     addResource, deleteResource,
+    addMemory, deleteMemory,
     setScene, updateGraph, logFocusSession, logActivity,
     setFollowRealWorld, setWeather, setApiKeys,
     addAssistantMessage, clearAssistantMessages, setMusicUri,

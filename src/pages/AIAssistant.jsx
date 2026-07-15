@@ -1,22 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../context/AppContext.jsx'
-import { askGroq, buildWorkspaceContext, extractActions } from '../services/groq.js'
+import { askGroq, buildWorkspaceContext } from '../services/groq.js'
+import { createToolExecutor } from '../services/aiTools.js'
 import { Panel, Textarea, Button } from '../components/ui.jsx'
 
 const SUGGESTIONS = [
   'What should I focus on first today?',
   'Summarize my E-Commerce Website project',
   'Which tasks are overdue or piling up?',
-  'Add a task to review the PR by Friday'
+  'Remember that my interview is on July 20',
+  'Find anything I have about firebase'
 ]
 
 export default function AIAssistant() {
+  const app = useApp()
   const {
-    projects, tasks, notes, events, apiKeys,
-    assistantMessages, addAssistantMessage, clearAssistantMessages,
-    addTask, addNote, addEvent
-  } = useApp()
+    projects, tasks, notes, events, memories, apiKeys,
+    assistantMessages, addAssistantMessage, clearAssistantMessages
+  } = app
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -33,23 +35,6 @@ export default function AIAssistant() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [assistantMessages, loading])
 
-  function runActions(actions) {
-    const created = []
-    actions.forEach(a => {
-      if (a.type === 'task' && a.title) {
-        addTask({ title: a.title, due: a.due || '' })
-        created.push(`Task: "${a.title}"`)
-      } else if (a.type === 'note' && a.title) {
-        addNote({ title: a.title, body: a.body || '', tag: a.tag || 'Note' })
-        created.push(`Note: "${a.title}"`)
-      } else if (a.type === 'event' && a.title && a.date) {
-        addEvent({ title: a.title, date: a.date, time: a.time || '—' })
-        created.push(`Event: "${a.title}"`)
-      }
-    })
-    return created
-  }
-
   async function send(text) {
     const question = (text ?? input).trim()
     if (!question || loading) return
@@ -58,16 +43,19 @@ export default function AIAssistant() {
     addAssistantMessage({ role: 'user', text: question })
     setLoading(true)
     try {
-      const context = buildWorkspaceContext({ projects, tasks, notes, events })
+      const context = buildWorkspaceContext({ projects, tasks, notes, events, memories })
       const key = apiKeys.groq || import.meta.env.VITE_GROQ_API_KEY
-      const raw = await askGroq(question, context, key, assistantMessages)
-      const { text: replyText, actions } = extractActions(raw)
+      const executeTool = createToolExecutor(app)
+      const { text: replyText, actions } = await askGroq({
+        question,
+        contextText: context,
+        apiKey: key,
+        history: assistantMessages,
+        executeTool
+      })
       addAssistantMessage({ role: 'assistant', text: replyText })
       if (actions.length > 0) {
-        const created = runActions(actions)
-        if (created.length > 0) {
-          addAssistantMessage({ role: 'assistant', text: `✅ Done — created:\n${created.map(c => `• ${c}`).join('\n')}`, isAction: true })
-        }
+        addAssistantMessage({ role: 'assistant', text: `✅ ${actions.join('\n✅ ')}`, isAction: true })
       }
     } catch (e) {
       setError(e.message || 'Something went wrong talking to the assistant.')
@@ -82,7 +70,7 @@ export default function AIAssistant() {
         <div className="flex items-center justify-between p-4 border-b border-white/5">
           <div>
             <h2 className="font-display text-lg text-ink-50">AI Assistant</h2>
-            <p className="text-xs text-ink-300">Ask questions, or ask it to create tasks, notes, and events for you.</p>
+            <p className="text-xs text-ink-300">Ask questions, or tell it what to create, change, find, or remember.</p>
           </div>
           {assistantMessages.length > 0 && (
             <button onClick={clearAssistantMessages} className="text-xs text-ink-300 hover:text-red-300">Clear chat</button>
@@ -135,7 +123,7 @@ export default function AIAssistant() {
         <div className="p-4 border-t border-white/5 flex gap-2">
           <Textarea
             rows={1}
-            placeholder={hasKey ? 'Ask, or say "add a task to..."' : 'Add an API key to .env to start chatting'}
+            placeholder={hasKey ? 'Ask, or say "delete my docker note", "remember that...", "find..."' : 'Add an API key to .env to start chatting'}
             value={input}
             disabled={!hasKey}
             onChange={e => setInput(e.target.value)}
@@ -148,12 +136,12 @@ export default function AIAssistant() {
 
       <Panel title="What the AI can do">
         <ul className="flex flex-col gap-2 text-xs text-ink-300">
-          <li>· Answer questions using {projects.length} projects, {tasks.filter(t => !t.done).length} pending tasks, and your recent notes</li>
-          <li>· Create tasks — "add a task to..."</li>
-          <li>· Create notes — "note that..."</li>
-          <li>· Schedule events — "schedule a... on..."</li>
+          <li>· Understands all {projects.length} projects, {tasks.filter(t => !t.done).length} pending tasks, every note's full content, and events</li>
+          <li>· Create, update, rename, or delete notes, tasks, events, and projects</li>
+          <li>· Search across your whole workspace — "find firebase"</li>
+          <li>· Remember facts for later — "remember that..." — and recall them in future chats</li>
         </ul>
-        <p className="text-[11px] text-ink-300 mt-4">Anything it creates shows up instantly across Tasks, Notes, and Calendar — try it.</p>
+        <p className="text-[11px] text-ink-300 mt-4">Anything it changes shows up instantly across Tasks, Notes, Projects, and Calendar — try it.</p>
       </Panel>
     </div>
   )
